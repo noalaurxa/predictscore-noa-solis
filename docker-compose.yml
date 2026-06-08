@@ -51,13 +51,92 @@ services:
     restart: always
     ports:
       - "6379:6379"
+    command: redis-server --save 60 1 --appendonly yes
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
 
-  # 3. Aplicación Frontend (React + Vite + Nginx)
+  # 3. Microservicio de Partidos (Match Service)
+  match-service:
+    build:
+      context: ./services/match-service
+      dockerfile: Dockerfile
+    container_name: predictscore-match-service
+    restart: always
+    ports:
+      - "3002:3002"
+    environment:
+      PORT: 3002
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: admin
+      DB_PASSWORD: admin
+      DB_NAME: predictscore
+      JWT_SECRET: predictscore_secret
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SCORING_SERVICE_URL: http://scoring-service:3004
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 4. Microservicio de Predicciones (Prediction Service)
+  prediction-service:
+    build:
+      context: ./services/prediction-service
+      dockerfile: Dockerfile
+    container_name: predictscore-prediction-service
+    restart: always
+    ports:
+      - "3003:3003"
+    environment:
+      PORT: 3003
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: admin
+      DB_PASSWORD: admin
+      DB_NAME: predictscore
+      JWT_SECRET: predictscore_secret
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 5. Microservicio de Puntuación (Scoring Service)
+  scoring-service:
+    build:
+      context: ./services/scoring-service
+      dockerfile: Dockerfile
+    container_name: predictscore-scoring-service
+    restart: always
+    ports:
+      - "3004:3004"
+    environment:
+      PORT: 3004
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: admin
+      DB_PASSWORD: admin
+      DB_NAME: predictscore
+      JWT_SECRET: predictscore_secret
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 6. Aplicación Frontend (React + Vite + Nginx)
   frontend:
     build:
       context: ./frontend
@@ -71,3 +150,4 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:

@@ -9,13 +9,12 @@ const pool = new Pool({
   database: process.env.DB_NAME,
 });
 
-// Registrar eventos de conexión para monitoreo y debugging
 pool.on('connect', () => {
-  console.log('Base de datos conectada exitosamente a través del Pool');
+  console.log('Prediction Service: Base de datos conectada exitosamente a través del Pool');
 });
 
 pool.on('error', (err) => {
-  console.error('Error inesperado en el cliente inactivo de la base de datos', err);
+  console.error('Prediction Service: Error inesperado en el cliente inactivo de la base de datos', err);
   process.exit(-1);
 });
 
