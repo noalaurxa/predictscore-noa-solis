@@ -1,0 +1,73 @@
+services:
+  # 1. Base de Datos PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: predictscore-db
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: predictscore
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Script de inicialización de la tabla 'users'
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d predictscore"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. Microservicio de Autenticación (Auth Service)
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    container_name: predictscore-auth-service
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      DB_HOST: db # Apunta al servicio postgres 'db'
+      DB_PORT: 5432
+      DB_USER: admin
+      DB_PASSWORD: admin
+      DB_NAME: predictscore
+      JWT_SECRET: predictscore_secret
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: predictscore-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # 3. Aplicación Frontend (React + Vite + Nginx)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: predictscore-frontend
+    restart: always
+    ports:
+      - "3000:80" # Mapea el puerto 3000 local al puerto 80 del contenedor
+    depends_on:
+      - auth-service
+
+volumes:
+  postgres_data:
