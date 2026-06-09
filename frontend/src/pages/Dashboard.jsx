@@ -22,6 +22,10 @@ const Dashboard = () => {
   const [predictions, setPredictions] = useState([]);
   const [predictionInputs, setPredictionInputs] = useState({});
   const [predictionLoading, setPredictionLoading] = useState({});
+  // Edit mode per match (set of match IDs currently being edited)
+  const [editingPredictions, setEditingPredictions] = useState(new Set());
+  // Warning modal state
+  const [editWarningModal, setEditWarningModal] = useState({ open: false, matchId: null, matchDate: null });
 
   // Leaderboard State
   const [rankings, setRankings] = useState([]);
@@ -597,24 +601,34 @@ const Dashboard = () => {
                         const isExpired = new Date() >= new Date(match.match_date);
                         const pred = predictions.find(p => p.match_id === match.id);
                         const currentInput = predictionInputs[match.id] || { home_predict: '', away_predict: '' };
+                        const isEditing = editingPredictions.has(match.id);
+                        // Is the early bonus still applicable (>24h left)?
+                        const hoursUntilMatch = (new Date(match.match_date) - new Date()) / 1000 / 3600;
+                        const hasEarlyBonus = hoursUntilMatch > 24;
                         return (
                           <div key={match.id} className="match-card" style={{
                             background: 'var(--bg-secondary)',
-                            border: '1px solid var(--border-color)',
+                            border: `1px solid ${isEditing ? 'var(--accent-gold)' : 'var(--border-color)'}`,
                             borderRadius: '14px',
                             padding: '1.5rem',
                             display: 'flex',
                             flexDirection: 'column',
-                            gap: '1rem'
+                            gap: '1rem',
+                            transition: 'border-color 0.3s'
                           }}>
                             {/* Header */}
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
                               <span style={{ color: 'var(--text-secondary)' }}>📅 {new Date(match.match_date).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
-                              {isExpired ? (
-                                <span className="status-badge status-banned" style={{ background: 'rgba(251, 191, 36, 0.1)', color: 'var(--accent-gold)', borderColor: 'rgba(251, 191, 36, 0.2)' }}>Cerrado</span>
-                              ) : (
-                                <span className="status-badge status-active">Abierto</span>
-                              )}
+                              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                                {hasEarlyBonus && !isExpired && (
+                                  <span title="Más de 24h: obtendrás el punto extra anticipado" style={{ fontSize: '0.7rem', background: 'rgba(251,191,36,0.12)', color: 'var(--accent-gold)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: '4px', padding: '0.1rem 0.35rem' }}>⭐+1 bonus</span>
+                                )}
+                                {isExpired ? (
+                                  <span className="status-badge status-banned" style={{ background: 'rgba(251, 191, 36, 0.1)', color: 'var(--accent-gold)', borderColor: 'rgba(251, 191, 36, 0.2)' }}>Cerrado</span>
+                                ) : (
+                                  <span className="status-badge status-active">Abierto</span>
+                                )}
+                              </div>
                             </div>
                             {/* Teams */}
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0.5rem 0' }}>
@@ -625,27 +639,74 @@ const Dashboard = () => {
                             {/* Prediction Input */}
                             <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{pred ? 'Editar Predicción:' : 'Ingresar Predicción:'}</span>
-                                {pred && (
-                                  <span style={{ fontSize: '0.75rem', color: 'var(--accent-mint)' }}>✔ Guardada ({pred.home_predict}-{pred.away_predict})</span>
+                                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                  {pred && !isEditing ? 'Predicción guardada:' : pred && isEditing ? 'Editando predicción:' : 'Ingresar Predicción:'}
+                                </span>
+                                {pred && !isEditing && (
+                                  <span style={{ fontSize: '0.75rem', color: 'var(--accent-mint)' }}>✔ {pred.home_predict}-{pred.away_predict}</span>
                                 )}
                               </div>
-                              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'center' }}>
-                                <input type="number" min="0" className="form-input" style={{ width: '60px', textAlign: 'center', padding: '0.4rem' }} placeholder="L"
-                                  value={currentInput.home_predict}
-                                  onChange={e => handlePredictionInputChange(match.id, 'home_predict', e.target.value)}
-                                  disabled={isExpired || adminActionLoading}
-                                />
-                                <span>-</span>
-                                <input type="number" min="0" className="form-input" style={{ width: '60px', textAlign: 'center', padding: '0.4rem' }} placeholder="V"
-                                  value={currentInput.away_predict}
-                                  onChange={e => handlePredictionInputChange(match.id, 'away_predict', e.target.value)}
-                                  disabled={isExpired || adminActionLoading}
-                                />
-                                <button onClick={() => handleSavePrediction(match.id)} className="btn btn-primary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }} disabled={predictionLoading[match.id] || isExpired}>
-                                  {predictionLoading[match.id] ? '...' : 'Guardar'}
-                                </button>
-                              </div>
+
+                              {/* If saved and NOT editing: show summary + Edit button */}
+                              {pred && !isEditing && !isExpired ? (
+                                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', justifyContent: 'center' }}>
+                                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', background: 'rgba(255,255,255,0.04)', padding: '0.4rem 1rem', borderRadius: '8px', fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>
+                                    <span>{pred.home_predict}</span>
+                                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>-</span>
+                                    <span>{pred.away_predict}</span>
+                                  </div>
+                                  <button
+                                    onClick={() => setEditWarningModal({ open: true, matchId: match.id, matchDate: match.match_date })}
+                                    className="btn btn-secondary"
+                                    style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}
+                                  >
+                                    ✏️ Editar
+                                  </button>
+                                </div>
+                              ) : (
+                                /* No saved pred, or actively editing: show inputs + Save/Cancel */
+                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                  <input type="number" min="0" className="form-input" style={{ width: '60px', textAlign: 'center', padding: '0.4rem' }} placeholder="L"
+                                    value={currentInput.home_predict}
+                                    onChange={e => handlePredictionInputChange(match.id, 'home_predict', e.target.value)}
+                                    disabled={isExpired || predictionLoading[match.id]}
+                                  />
+                                  <span>-</span>
+                                  <input type="number" min="0" className="form-input" style={{ width: '60px', textAlign: 'center', padding: '0.4rem' }} placeholder="V"
+                                    value={currentInput.away_predict}
+                                    onChange={e => handlePredictionInputChange(match.id, 'away_predict', e.target.value)}
+                                    disabled={isExpired || predictionLoading[match.id]}
+                                  />
+                                  <button
+                                    onClick={() => {
+                                      handleSavePrediction(match.id);
+                                      setEditingPredictions(prev => { const s = new Set(prev); s.delete(match.id); return s; });
+                                    }}
+                                    className="btn btn-primary"
+                                    style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
+                                    disabled={predictionLoading[match.id] || isExpired}
+                                  >
+                                    {predictionLoading[match.id] ? '...' : 'Guardar'}
+                                  </button>
+                                  {/* Cancel edit - only show if there was a saved pred */}
+                                  {pred && isEditing && (
+                                    <button
+                                      onClick={() => setEditingPredictions(prev => { const s = new Set(prev); s.delete(match.id); return s; })}
+                                      className="btn btn-secondary"
+                                      style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
+                                    >
+                                      Cancelar
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Expired: just show saved values read-only */}
+                              {isExpired && pred && (
+                                <div style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                                  Predicción cerrada: {pred.home_predict} - {pred.away_predict}
+                                </div>
+                              )}
                             </div>
                           </div>
                         );
@@ -655,6 +716,89 @@ const Dashboard = () => {
                 )}
               </div>
             )}
+
+            {/* ── EDIT WARNING MODAL ── */}
+            {editWarningModal.open && (() => {
+              const mDate = new Date(editWarningModal.matchDate);
+              const hoursLeft = (mDate - new Date()) / 1000 / 3600;
+              const stillEarly = hoursLeft > 24;
+              return (
+                <div
+                  id="edit-prediction-modal-overlay"
+                  style={{
+                    position: 'fixed', inset: 0,
+                    background: 'rgba(0,0,0,0.7)',
+                    backdropFilter: 'blur(4px)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    zIndex: 1000,
+                    animation: 'fadeIn 0.2s ease-out'
+                  }}
+                  onClick={(e) => { if (e.target === e.currentTarget) setEditWarningModal({ open: false, matchId: null, matchDate: null }); }}
+                >
+                  <div style={{
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '18px',
+                    padding: '2rem',
+                    maxWidth: '420px',
+                    width: '90%',
+                    boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '1.25rem'
+                  }}>
+                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+                      <span style={{ fontSize: '2rem', lineHeight: 1 }}>⚠️</span>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)' }}>¿Editar tu predicción?</h3>
+                        <p style={{ margin: '0.4rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                          Estás a punto de modificar una predicción ya registrada. Ten en cuenta la siguiente regla:
+                        </p>
+                      </div>
+                    </div>
+
+                    <div style={{ background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: '10px', padding: '1rem', fontSize: '0.85rem', lineHeight: 1.6 }}>
+                      <p style={{ margin: 0, color: 'var(--accent-gold)', fontWeight: 'bold', marginBottom: '0.4rem' }}>⭐ Predicción Anticipada (+1 punto extra)</p>
+                      <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+                        Las predicciones registradas con <strong style={{ color: 'var(--text-primary)' }}>más de 24 horas de anticipación</strong> al partido obtienen 1 punto extra.
+                        Las de <strong style={{ color: 'var(--text-primary)' }}>último minuto (10 min antes)</strong> solo reciben puntos base.
+                      </p>
+                    </div>
+
+                    {stillEarly ? (
+                      <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '8px', padding: '0.75rem', fontSize: '0.82rem', color: 'var(--accent-mint)' }}>
+                        ✅ Aún tienes <strong>{hoursLeft.toFixed(0)}h</strong> hasta el partido. Si guardas ahora, <strong>conservarás el bono anticipado</strong>.
+                      </div>
+                    ) : (
+                      <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '8px', padding: '0.75rem', fontSize: '0.82rem', color: '#f87171' }}>
+                        ❌ Quedan menos de 24 horas para el partido. Si guardas ahora, <strong>perderás el bono anticipado de +1 punto</strong>.
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                      <button
+                        className="btn btn-secondary"
+                        style={{ width: 'auto', padding: '0.5rem 1.25rem' }}
+                        onClick={() => setEditWarningModal({ open: false, matchId: null, matchDate: null })}
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        id="edit-prediction-confirm-btn"
+                        className="btn btn-primary"
+                        style={{ width: 'auto', padding: '0.5rem 1.25rem', background: stillEarly ? '' : 'linear-gradient(135deg, #ef4444, #b91c1c)' }}
+                        onClick={() => {
+                          setEditingPredictions(prev => new Set(prev).add(editWarningModal.matchId));
+                          setEditWarningModal({ open: false, matchId: null, matchDate: null });
+                        }}
+                      >
+                        Sí, editar predicción
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
 
             {/* 4. LEADERBOARD TAB */}
