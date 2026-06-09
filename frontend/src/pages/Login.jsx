@@ -10,11 +10,16 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  // Si ya tiene un token, redirigir directo al dashboard
+  // Si ya tiene un token, redirigir según rol
   useEffect(() => {
     const token = localStorage.getItem('token');
-    if (token) {
-      navigate('/dashboard');
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    if (token && user) {
+      if (user.role === 'admin') {
+        navigate('/admin');
+      } else {
+        navigate('/dashboard');
+      }
     }
   }, [navigate]);
 
@@ -32,18 +37,23 @@ const Login = () => {
 
     try {
       const response = await api.post('/auth/login', { email, password });
-      
+
       const { token, user } = response.data;
-      
+
       // Guardar JWT y datos de usuario en localStorage
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(user));
-      
+
       setSuccess('¡Inicio de sesión exitoso! Redirigiendo...');
-      
+
       setTimeout(() => {
-        navigate('/dashboard');
-      }, 1000);
+        // Redirigir según rol
+        if (user.role === 'admin') {
+          navigate('/admin');
+        } else {
+          navigate('/dashboard');
+        }
+      }, 800);
     } catch (err) {
       console.error(err);
       if (err.response && err.response.data && err.response.data.error) {
@@ -119,6 +129,16 @@ const Login = () => {
         <div className="auth-footer">
           ¿No tienes una cuenta?{' '}
           <Link to="/register" id="link-to-register">Regístrate aquí</Link>
+        </div>
+
+        <div style={{ textAlign: 'center', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)' }}>
+          <Link
+            to="/admin/register"
+            id="link-to-admin-register"
+            style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', opacity: 0.6 }}
+          >
+            🔐 Acceso administrador
+          </Link>
         </div>
       </div>
     </div>

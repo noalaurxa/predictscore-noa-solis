@@ -243,7 +243,7 @@ const getRanking = async (req, res) => {
       SELECT u.id, u.name, u.email, COALESCE(SUM(s.points), 0)::INTEGER as total_points
       FROM users u
       LEFT JOIN scores s ON u.id = s.user_id
-      WHERE u.is_banned = FALSE
+      WHERE u.is_banned = FALSE AND u.role = 'user'
       GROUP BY u.id, u.name, u.email
       ORDER BY total_points DESC, u.name ASC
     `);

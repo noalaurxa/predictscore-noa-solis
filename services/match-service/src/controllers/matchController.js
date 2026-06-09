@@ -155,9 +155,34 @@ const updateMatchResult = async (req, res) => {
   }
 };
 
+// 5. Eliminar un partido (solo admin)
+const deleteMatch = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const matchCheck = await db.query('SELECT * FROM matches WHERE id = $1', [id]);
+    if (matchCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'El partido no existe.' });
+    }
+
+    if (matchCheck.rows[0].status === 'finished') {
+      return res.status(400).json({ error: 'No se puede eliminar un partido finalizado.' });
+    }
+
+    await db.query('DELETE FROM matches WHERE id = $1', [id]);
+    await redis.del('matches:all');
+
+    return res.status(200).json({ message: 'Partido eliminado exitosamente.' });
+  } catch (error) {
+    console.error('Error al eliminar partido:', error);
+    return res.status(500).json({ error: 'Error interno del servidor al eliminar el partido.' });
+  }
+};
+
 module.exports = {
   getMatches,
   getMatchById,
   createMatch,
-  updateMatchResult
+  updateMatchResult,
+  deleteMatch
 };

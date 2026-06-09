@@ -63,11 +63,11 @@ CREATE TABLE IF NOT EXISTS scores (
 );
 
 -- 7. Semillas de Prueba (Contraseña de todas las semillas: '123456')
--- Hash de bcrypt para '123456': $2b$10$7YDAKL5g3no09ragmwBq3.GyQZfs1ri5SmauwvJ/9zDcRLS22XMl.
+-- Hash de bcrypt para '123456': $2b$10$ExxBNmAsKSn2aqaimoU7CelQ288QL4T6vgGz4pI.S031Cyrfz9zA2
 INSERT INTO users (id, name, email, password, role, is_banned) VALUES
-('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Lionel Messi', 'messi@test.com', '$2b$10$7YDAKL5g3no09ragmwBq3.GyQZfs1ri5SmauwvJ/9zDcRLS22XMl.', 'user', false),
-('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22', 'Cristiano Ronaldo', 'cr7@test.com', '$2b$10$7YDAKL5g3no09ragmwBq3.GyQZfs1ri5SmauwvJ/9zDcRLS22XMl.', 'user', false),
-('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33', 'Neymar Jr', 'neymar@test.com', '$2b$10$7YDAKL5g3no09ragmwBq3.GyQZfs1ri5SmauwvJ/9zDcRLS22XMl.', 'user', false)
+('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Lionel Messi', 'messi@test.com', '$2b$10$ExxBNmAsKSn2aqaimoU7CelQ288QL4T6vgGz4pI.S031Cyrfz9zA2', 'user', false),
+('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22', 'Cristiano Ronaldo', 'cr7@test.com', '$2b$10$ExxBNmAsKSn2aqaimoU7CelQ288QL4T6vgGz4pI.S031Cyrfz9zA2', 'user', false),
+('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33', 'Neymar Jr', 'neymar@test.com', '$2b$10$ExxBNmAsKSn2aqaimoU7CelQ288QL4T6vgGz4pI.S031Cyrfz9zA2', 'user', false)
 ON CONFLICT (email) DO NOTHING;
 
 -- Semillas de Puntuaciones

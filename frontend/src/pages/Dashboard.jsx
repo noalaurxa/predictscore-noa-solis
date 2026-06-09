@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api, { authApi, matchApi, predictionApi } from '../services/api';
-import DashboardAdmin from './DashboardAdmin';
+import { authApi, matchApi, predictionApi } from '../services/api';
 const Dashboard = () => {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -31,14 +30,7 @@ const Dashboard = () => {
   const [rankings, setRankings] = useState([]);
   const [rankingSource, setRankingSource] = useState('');
 
-  // Admin Mock State
-  const [adminHomeTeam, setAdminHomeTeam] = useState('');
-  const [adminAwayTeam, setAdminAwayTeam] = useState('');
-  const [adminMatchDate, setAdminMatchDate] = useState('');
-  const [adminSelectedMatch, setAdminSelectedMatch] = useState('');
-  const [adminHomeScore, setAdminHomeScore] = useState('');
-  const [adminAwayScore, setAdminAwayScore] = useState('');
-  const [adminActionLoading, setAdminActionLoading] = useState(false);
+
 
   const navigate = useNavigate();
 
@@ -221,65 +213,7 @@ const Dashboard = () => {
     }));
   };
 
-  // Admin: Create Match
-  const handleCreateMatch = async (e) => {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
-    if (!adminHomeTeam || !adminAwayTeam || !adminMatchDate) {
-      setError('Todos los campos son obligatorios para crear un partido.');
-      return;
-    }
 
-    try {
-      setAdminActionLoading(true);
-      await matchApi.post('/matches', {
-        home_team: adminHomeTeam,
-        away_team: adminAwayTeam,
-        match_date: adminMatchDate
-      });
-      setSuccess(`Partido creado con éxito: ${adminHomeTeam} vs ${adminAwayTeam}`);
-      setAdminHomeTeam('');
-      setAdminAwayTeam('');
-      setAdminMatchDate('');
-      fetchMatchesAndPredictions();
-    } catch (err) {
-      console.error(err);
-      setError(err.response?.data?.error || 'Error al crear el partido.');
-    } finally {
-      setAdminActionLoading(false);
-    }
-  };
-
-  // Admin: Submit Result
-  const handleResolveMatch = async (e) => {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
-    if (!adminSelectedMatch || adminHomeScore === '' || adminAwayScore === '') {
-      setError('Selecciona un partido y especifica el marcador final.');
-      return;
-    }
-
-    try {
-      setAdminActionLoading(true);
-      const response = await matchApi.put('/matches/result', {
-        match_id: adminSelectedMatch,
-        home_score: adminHomeScore,
-        away_score: adminAwayScore
-      });
-      setSuccess(`Marcador registrado con éxito. Detalle del Scoring: ${response.data.scoringStatus}`);
-      setAdminSelectedMatch('');
-      setAdminHomeScore('');
-      setAdminAwayScore('');
-      fetchMatchesAndPredictions();
-    } catch (err) {
-      console.error(err);
-      setError(err.response?.data?.error || 'Error al registrar el resultado del partido.');
-    } finally {
-      setAdminActionLoading(false);
-    }
-  };
 
   // Helper Stats Calculation
   const totalPoints = predictions.reduce((sum, p) => sum + (p.earned_points || 0), 0);
@@ -347,16 +281,7 @@ const Dashboard = () => {
           >
             <span>🏆</span> Ranking Global
           </button>
-          {profile?.role === 'admin' && (
-            <button
-              onClick={() => setActiveTab('admin')}
-              className={`btn ${activeTab === 'admin' ? 'btn-primary' : 'btn-secondary'}`}
-              style={{ width: 'auto', display: 'flex', gap: '0.5rem', alignItems: 'center' }}
-              id="tab-admin"
-            >
-              <span>⚙️</span> Control de Admin
-            </button>
-          )}
+
         </div>
 
         {/* Success / Error Alerts */}
@@ -857,27 +782,7 @@ const Dashboard = () => {
               </div>
             )}
 
-            {/* 5. ADMIN CONTROLS TAB */}
-            {activeTab === 'admin' && profile?.role === 'admin' && (
-              <DashboardAdmin
-                adminHomeTeam={adminHomeTeam}
-                setAdminHomeTeam={setAdminHomeTeam}
-                adminAwayTeam={adminAwayTeam}
-                setAdminAwayTeam={setAdminAwayTeam}
-                adminMatchDate={adminMatchDate}
-                setAdminMatchDate={setAdminMatchDate}
-                adminActionLoading={adminActionLoading}
-                handleCreateMatch={handleCreateMatch}
-                matches={matches}
-                adminSelectedMatch={adminSelectedMatch}
-                setAdminSelectedMatch={setAdminSelectedMatch}
-                adminHomeScore={adminHomeScore}
-                setAdminHomeScore={setAdminHomeScore}
-                adminAwayScore={adminAwayScore}
-                setAdminAwayScore={setAdminAwayScore}
-                handleResolveMatch={handleResolveMatch}
-              />
-            )}
+
 
           </div>
         )}

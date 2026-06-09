@@ -186,11 +186,22 @@ const getUsers = async (req, res) => {
 const banUser = async (req, res) => {
   try {
     const { id } = req.params;
+    const requesterId = req.user.id;
+
+    // No puede banearse a sí mismo
+    if (id === requesterId) {
+      return res.status(400).json({ error: 'No puedes bloquearte a ti mismo.' });
+    }
 
     // Verificar si el usuario existe
-    const checkUser = await db.query('SELECT id FROM users WHERE id = $1', [id]);
+    const checkUser = await db.query('SELECT id, role FROM users WHERE id = $1', [id]);
     if (checkUser.rows.length === 0) {
       return res.status(404).json({ error: 'Usuario a bloquear no encontrado.' });
+    }
+
+    // No puede banear a otro admin
+    if (checkUser.rows[0].role === 'admin') {
+      return res.status(403).json({ error: 'No se puede bloquear a otro administrador.' });
     }
 
     // Actualizar estado is_banned a true
@@ -210,7 +221,84 @@ const banUser = async (req, res) => {
   }
 };
 
-// 6. Obtener Ranking Global (Calculado y Cachado en Redis)
+// 6. Desbanear / Desbloquear usuario
+const unbanUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verificar si el usuario existe
+    const checkUser = await db.query('SELECT id FROM users WHERE id = $1', [id]);
+    if (checkUser.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado.' });
+    }
+
+    // Actualizar estado is_banned a false
+    await db.query('UPDATE users SET is_banned = FALSE WHERE id = $1', [id]);
+
+    // Invalidar cachés en Redis
+    await redis.del('users:all');
+    await redis.del('ranking:all');
+
+    return res.status(200).json({
+      message: 'Usuario desbloqueado exitosamente.',
+      userId: id
+    });
+  } catch (error) {
+    console.error('Error en controlador de desbaneo:', error);
+    return res.status(500).json({ error: 'Error interno del servidor al desbloquear al usuario.' });
+  }
+};
+
+// 7. Registro exclusivo de administrador (solo accesible por admins existentes o con clave especial)
+const adminRegister = async (req, res) => {
+  try {
+    const { name, email, password, adminKey } = req.body;
+
+    // Clave secreta para crear admins (en producción usaría variable de entorno)
+    const ADMIN_SECRET_KEY = process.env.ADMIN_SECRET_KEY || 'predictscore_admin_2024';
+
+    if (adminKey !== ADMIN_SECRET_KEY) {
+      return res.status(403).json({ error: 'Clave de administrador inválida.' });
+    }
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'Todos los campos son obligatorios.' });
+    }
+
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'El formato de correo electrónico es inválido.' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres.' });
+    }
+
+    const emailCheck = await db.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase().trim()]);
+    if (emailCheck.rows.length > 0) {
+      return res.status(409).json({ error: 'El correo electrónico ya se encuentra registrado.' });
+    }
+
+    const id = uuidv4();
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const insertResult = await db.query(
+      'INSERT INTO users (id, name, email, password, role, is_banned) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, email, role, is_banned, created_at',
+      [id, name.trim(), email.toLowerCase().trim(), hashedPassword, 'admin', false]
+    );
+
+    await redis.del('users:all');
+
+    return res.status(201).json({
+      message: 'Administrador registrado exitosamente.',
+      user: insertResult.rows[0]
+    });
+  } catch (error) {
+    console.error('Error en registro de admin:', error);
+    return res.status(500).json({ error: 'Error interno del servidor al registrar el administrador.' });
+  }
+};
+
+// 8. Obtener Ranking Global (Calculado y Cachado en Redis)
 const getRanking = async (req, res) => {
   try {
     // Intentar leer caché de Redis
@@ -227,7 +315,7 @@ const getRanking = async (req, res) => {
       SELECT u.id, u.name, u.email, COALESCE(SUM(s.points), 0)::INTEGER as total_points
       FROM users u
       LEFT JOIN scores s ON u.id = s.user_id
-      WHERE u.is_banned = FALSE
+      WHERE u.is_banned = FALSE AND u.role = 'user'
       GROUP BY u.id, u.name, u.email
       ORDER BY total_points DESC, u.name ASC
     `);
@@ -253,5 +341,7 @@ module.exports = {
   profile,
   getUsers,
   banUser,
+  unbanUser,
+  adminRegister,
   getRanking
 };
