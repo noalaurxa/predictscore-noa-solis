@@ -45,9 +45,11 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Ocurrió un error inesperado en el servidor de partidos.' });
 });
 
-// Iniciar el servidor
-app.listen(PORT, () => {
-  console.log(`Servidor de Partidos (Match Service) corriendo en el puerto ${PORT}`);
-});
+// Iniciar el servidor solo si se ejecuta directamente (no en tests)
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Servidor de Partidos (Match Service) corriendo en el puerto ${PORT}`);
+  });
+}
 
 module.exports = app;
