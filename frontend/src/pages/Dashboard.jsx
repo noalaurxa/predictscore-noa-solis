@@ -15,6 +15,12 @@ const Dashboard = () => {
   const [newRoomName, setNewRoomName] = useState('');
   const [joinRoomCode, setJoinRoomCode] = useState('');
   const [roomActionLoading, setRoomActionLoading] = useState(false);
+  // Room detail panel
+  const [selectedRoom, setSelectedRoom] = useState(null);   // room object
+  const [roomDetail, setRoomDetail] = useState(null);       // { room, members }
+  const [roomRanking, setRoomRanking] = useState([]);
+  const [roomDetailLoading, setRoomDetailLoading] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
 
   // Matches & Predictions State
   const [matches, setMatches] = useState([]);
@@ -171,6 +177,74 @@ const Dashboard = () => {
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.error || 'Error al intentar unirse a la sala.');
+    } finally {
+      setRoomActionLoading(false);
+    }
+  };
+
+  // Open room detail panel
+  const handleOpenRoomDetail = async (room) => {
+    setSelectedRoom(room);
+    setRoomDetail(null);
+    setRoomRanking([]);
+    setRoomDetailLoading(true);
+    try {
+      const [detailRes, rankingRes] = await Promise.all([
+        predictionApi.get(`/rooms/${room.id}`),
+        predictionApi.get(`/rooms/${room.id}/ranking`),
+      ]);
+      setRoomDetail(detailRes.data);
+      setRoomRanking(rankingRes.data.ranking || []);
+    } catch (err) {
+      console.error(err);
+      setError('Error al cargar el detalle de la sala.');
+    } finally {
+      setRoomDetailLoading(false);
+    }
+  };
+
+  const handleCloseRoomDetail = () => {
+    setSelectedRoom(null);
+    setRoomDetail(null);
+    setRoomRanking([]);
+    setCopiedCode(false);
+  };
+
+  // Copy room code to clipboard
+  const handleCopyCode = (code) => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    });
+  };
+
+  // Leave room
+  const handleLeaveRoom = async (roomId) => {
+    if (!window.confirm('¿Estás seguro de que quieres salir de esta sala?')) return;
+    try {
+      setRoomActionLoading(true);
+      await predictionApi.post(`/rooms/${roomId}/leave`);
+      setSuccess('Has salido de la sala exitosamente.');
+      handleCloseRoomDetail();
+      fetchRooms();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al salir de la sala.');
+    } finally {
+      setRoomActionLoading(false);
+    }
+  };
+
+  // Delete room (creator only)
+  const handleDeleteRoom = async (roomId, roomName) => {
+    if (!window.confirm(`¿Eliminar la sala "${roomName}"? Todos los miembros serán expulsados.`)) return;
+    try {
+      setRoomActionLoading(true);
+      const res = await predictionApi.delete(`/rooms/${roomId}`);
+      setSuccess(res.data.message);
+      handleCloseRoomDetail();
+      fetchRooms();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al eliminar la sala.');
     } finally {
       setRoomActionLoading(false);
     }
@@ -349,113 +423,278 @@ const Dashboard = () => {
 
             {/* 2. GAME ROOMS TAB */}
             {activeTab === 'rooms' && (
-              <div className="dashboard-grid">
-                {/* Forms sidebar */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  {/* Create room card */}
-                  <div className="card">
-                    <h3 className="table-title">Crear Nueva Sala</h3>
-                    <form onSubmit={handleCreateRoom} style={{ marginTop: '1rem' }} id="create-room-form">
-                      <div className="form-group">
-                        <label className="form-label" htmlFor="room-name">Nombre de la Sala</label>
-                        <input
-                          type="text"
-                          id="room-name"
-                          className="form-input"
-                          placeholder="Ej. Torneo de Oficina"
-                          value={newRoomName}
-                          onChange={(e) => setNewRoomName(e.target.value)}
-                          disabled={roomActionLoading}
-                          required
-                        />
-                      </div>
-                      <button type="submit" className="btn btn-primary" id="create-room-submit" disabled={roomActionLoading}>
-                        {roomActionLoading ? <div className="spinner"></div> : 'Crear Sala'}
-                      </button>
-                    </form>
-                  </div>
-
-                  {/* Join room card */}
-                  <div className="card">
-                    <h3 className="table-title">Unirse a una Sala</h3>
-                    <form onSubmit={handleJoinRoom} style={{ marginTop: '1rem' }} id="join-room-form">
-                      <div className="form-group">
-                        <label className="form-label" htmlFor="room-code">Código de la Sala</label>
-                        <input
-                          type="text"
-                          id="room-code"
-                          className="form-input"
-                          placeholder="Ej. ABCDEF"
-                          maxLength={6}
-                          value={joinRoomCode}
-                          onChange={(e) => setJoinRoomCode(e.target.value)}
-                          disabled={roomActionLoading}
-                          style={{ textTransform: 'uppercase' }}
-                          required
-                        />
-                      </div>
-                      <button type="submit" className="btn btn-secondary" id="join-room-submit" disabled={roomActionLoading}>
-                        {roomActionLoading ? <div className="spinner"></div> : 'Unirse a Sala'}
-                      </button>
-                    </form>
-                  </div>
-                </div>
-
-                {/* Rooms list */}
-                <div className="card">
-                  <h3 className="table-title">Tus Salas Unidas</h3>
-                  {roomActionLoading && rooms.length === 0 ? (
-                    <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem' }}>
-                      <div className="spinner"></div>
-                    </div>
-                  ) : rooms.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-secondary)' }}>
-                      <span style={{ fontSize: '3rem', display: 'block', marginBottom: '1rem' }}>🏟️</span>
-                      No perteneces a ninguna sala de juego todavía. ¡Crea una o únete a una existente arriba!
-                    </div>
-                  ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '1.25rem', marginTop: '1.25rem' }}>
-                      {rooms.map(room => (
-                        <div
-                          key={room.id}
-                          className="room-card"
-                          style={{
-                            background: 'rgba(255, 255, 255, 0.02)',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: '12px',
-                            padding: '1.25rem',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            justifyContent: 'space-between',
-                            gap: '1rem',
-                            transition: 'var(--transition-smooth)'
-                          }}
-                        >
-                          <div>
-                            <h4 style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>{room.name}</h4>
-                            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-                              Creada el: {new Date(room.created_at).toLocaleDateString()}
-                            </p>
-                          </div>
-
-                          <div style={{ background: 'rgba(251, 191, 36, 0.08)', border: '1px dashed var(--accent-gold)', padding: '0.5rem', borderRadius: '8px', textAlign: 'center' }}>
-                            <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--accent-gold)', display: 'block', letterSpacing: '0.05em' }}>Código de Invitación</span>
-                            <span style={{ fontFamily: 'monospace', fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>{room.code}</span>
-                          </div>
-
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem' }}>
-                            <span style={{ color: 'var(--text-secondary)' }}>👥 {room.members_count} miembros</span>
-                            {room.creator_id === profile?.id ? (
-                              <span style={{ color: 'var(--accent-mint)', fontSize: '0.75rem', fontWeight: 'bold', textTransform: 'uppercase' }}>Creador 👑</span>
-                            ) : (
-                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>Miembro</span>
-                            )}
-                          </div>
+              <div style={{ display: 'flex', gap: '1.5rem', position: 'relative' }}>
+                {/* Left column: create/join + room cards */}
+                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  {/* Action cards row */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1.25rem' }}>
+                    {/* Create room card */}
+                    <div className="card">
+                      <h3 className="table-title">🏠 Crear Nueva Sala</h3>
+                      <form onSubmit={handleCreateRoom} style={{ marginTop: '1rem' }} id="create-room-form">
+                        <div className="form-group">
+                          <label className="form-label" htmlFor="room-name">Nombre de la Sala</label>
+                          <input
+                            type="text"
+                            id="room-name"
+                            className="form-input"
+                            placeholder="Ej. Torneo de Oficina"
+                            value={newRoomName}
+                            onChange={(e) => setNewRoomName(e.target.value)}
+                            disabled={roomActionLoading}
+                            required
+                          />
                         </div>
-                      ))}
+                        <button type="submit" className="btn btn-primary" id="create-room-submit" disabled={roomActionLoading}>
+                          {roomActionLoading ? <div className="spinner"></div> : '+ Crear Sala'}
+                        </button>
+                      </form>
                     </div>
-                  )}
+
+                    {/* Join room card */}
+                    <div className="card">
+                      <h3 className="table-title">🔑 Unirse a una Sala</h3>
+                      <form onSubmit={handleJoinRoom} style={{ marginTop: '1rem' }} id="join-room-form">
+                        <div className="form-group">
+                          <label className="form-label" htmlFor="room-code">Código de Invitación</label>
+                          <input
+                            type="text"
+                            id="room-code"
+                            className="form-input"
+                            placeholder="Ej. ABCDEF"
+                            maxLength={6}
+                            value={joinRoomCode}
+                            onChange={(e) => setJoinRoomCode(e.target.value)}
+                            disabled={roomActionLoading}
+                            style={{ textTransform: 'uppercase', letterSpacing: '0.15em', fontFamily: 'monospace', fontSize: '1.1rem' }}
+                            required
+                          />
+                        </div>
+                        <button type="submit" className="btn btn-secondary" id="join-room-submit" disabled={roomActionLoading}>
+                          {roomActionLoading ? <div className="spinner"></div> : 'Unirse con Código'}
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+
+                  {/* Rooms grid */}
+                  <div className="card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                      <h3 className="table-title" style={{ margin: 0 }}>Tus Salas</h3>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.6rem', borderRadius: '20px' }}>
+                        {rooms.length} sala{rooms.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    {roomActionLoading && rooms.length === 0 ? (
+                      <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem' }}>
+                        <div className="spinner"></div>
+                      </div>
+                    ) : rooms.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-secondary)' }}>
+                        <span style={{ fontSize: '3rem', display: 'block', marginBottom: '1rem' }}>🏟️</span>
+                        No perteneces a ninguna sala todavía. ¡Crea una o únete con un código!
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1.25rem' }}>
+                        {rooms.map(room => (
+                          <div
+                            key={room.id}
+                            onClick={() => handleOpenRoomDetail(room)}
+                            style={{
+                              background: selectedRoom?.id === room.id
+                                ? 'rgba(16,185,129,0.06)'
+                                : 'rgba(255,255,255,0.02)',
+                              border: `1px solid ${selectedRoom?.id === room.id ? 'var(--accent-mint)' : 'var(--border-color)'}`,
+                              borderRadius: '14px',
+                              padding: '1.25rem',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '0.75rem'
+                            }}
+                            id={`room-card-${room.id}`}
+                          >
+                            {/* Room name + creator badge */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                              <h4 style={{ fontSize: '1rem', fontWeight: 'bold', color: 'var(--text-primary)', margin: 0, lineHeight: 1.3 }}>{room.name}</h4>
+                              {room.creator_id === profile?.id && (
+                                <span style={{ fontSize: '0.7rem', background: 'rgba(251,191,36,0.12)', color: 'var(--accent-gold)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: '4px', padding: '0.15rem 0.4rem', whiteSpace: 'nowrap' }}>👑 Creador</span>
+                              )}
+                            </div>
+
+                            {/* Invite code */}
+                            <div style={{ background: 'rgba(251,191,36,0.06)', border: '1px dashed rgba(251,191,36,0.35)', padding: '0.4rem 0.6rem', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Código</span>
+                              <span style={{ fontFamily: 'monospace', fontSize: '1rem', fontWeight: 'bold', color: 'var(--accent-gold)', letterSpacing: '0.1em' }}>{room.code}</span>
+                            </div>
+
+                            {/* Members count + date */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)', paddingTop: '0.6rem' }}>
+                              <span>👥 {room.members_count} miembro{room.members_count !== 1 ? 's' : ''}</span>
+                              <span>{new Date(room.created_at).toLocaleDateString()}</span>
+                            </div>
+
+                            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', textAlign: 'center', opacity: 0.7 }}>Click para ver detalles →</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
+
+                {/* Right column: Room detail slide-over panel */}
+                {selectedRoom && (
+                  <div
+                    id="room-detail-panel"
+                    style={{
+                      width: '360px',
+                      flexShrink: 0,
+                      background: 'var(--bg-secondary)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '18px',
+                      padding: '1.5rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '1.25rem',
+                      height: 'fit-content',
+                      position: 'sticky',
+                      top: '1rem',
+                      animation: 'slideIn 0.25s ease-out'
+                    }}
+                  >
+                    {/* Panel header */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)' }}>{selectedRoom.name}</h3>
+                        <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                          {selectedRoom.creator_id === profile?.id ? '👑 Eres el creador' : '👤 Eres miembro'}
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleCloseRoomDetail}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1.2rem', padding: '0.25rem', lineHeight: 1 }}
+                        id="close-room-panel-btn"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {/* Invite code + copy button */}
+                    <div style={{ background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: '12px', padding: '1rem' }}>
+                      <p style={{ margin: '0 0 0.5rem', fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Código de Invitación</p>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <span style={{ fontFamily: 'monospace', fontSize: '1.6rem', fontWeight: 'bold', color: 'var(--accent-gold)', letterSpacing: '0.2em', flex: 1 }}>{selectedRoom.code}</span>
+                        <button
+                          id="copy-room-code-btn"
+                          onClick={() => handleCopyCode(selectedRoom.code)}
+                          className="btn btn-secondary"
+                          style={{ padding: '0.35rem 0.7rem', fontSize: '0.8rem', width: 'auto', minWidth: 'auto' }}
+                        >
+                          {copiedCode ? '✅ Copiado' : '📋 Copiar'}
+                        </button>
+                      </div>
+                      <p style={{ margin: '0.5rem 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        Comparte este código para invitar a otros jugadores.
+                      </p>
+                    </div>
+
+                    {roomDetailLoading ? (
+                      <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem' }}>
+                        <div className="spinner"></div>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Room Ranking */}
+                        <div>
+                          <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.9rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>🏆 Ranking de la Sala</h4>
+                          {roomRanking.length === 0 ? (
+                            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Sin datos de puntuación aún.</p>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                              {roomRanking.map((member, idx) => {
+                                const isMe = member.id === profile?.id;
+                                const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
+                                return (
+                                  <div
+                                    key={member.id}
+                                    style={{
+                                      display: 'flex', alignItems: 'center', gap: '0.6rem',
+                                      padding: '0.5rem 0.6rem',
+                                      borderRadius: '8px',
+                                      background: isMe ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.02)',
+                                      border: `1px solid ${isMe ? 'rgba(16,185,129,0.2)' : 'var(--border-color)'}`
+                                    }}
+                                  >
+                                    <span style={{ fontSize: idx < 3 ? '1.1rem' : '0.85rem', fontWeight: 'bold', width: '24px', textAlign: 'center' }}>{medal}</span>
+                                    <span style={{ flex: 1, fontSize: '0.88rem', fontWeight: isMe ? 'bold' : 'normal', color: isMe ? 'var(--accent-mint)' : 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {member.name} {isMe && <span style={{ fontSize: '0.7rem' }}>(Tú)</span>}
+                                    </span>
+                                    <span style={{ fontWeight: 'bold', fontSize: '0.9rem', color: 'var(--accent-mint)', whiteSpace: 'nowrap' }}>{member.total_points} pts</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Members list */}
+                        {roomDetail?.members && (
+                          <div>
+                            <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.9rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>👥 Miembros ({roomDetail.members.length})</h4>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '200px', overflowY: 'auto' }}>
+                              {roomDetail.members.map(member => (
+                                <div key={member.id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.4rem 0.3rem' }}>
+                                  <div style={{
+                                    width: '28px', height: '28px', borderRadius: '50%',
+                                    background: 'linear-gradient(135deg, var(--accent-mint), var(--accent-blue))',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: '0.75rem', fontWeight: 'bold', color: '#fff', flexShrink: 0
+                                  }}>
+                                    {member.name.charAt(0).toUpperCase()}
+                                  </div>
+                                  <div style={{ flex: 1, overflow: 'hidden' }}>
+                                    <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {member.name}
+                                      {member.id === selectedRoom.creator_id && <span style={{ fontSize: '0.7rem', marginLeft: '0.3rem' }}>👑</span>}
+                                      {member.id === profile?.id && <span style={{ fontSize: '0.7rem', color: 'var(--accent-mint)', marginLeft: '0.3rem' }}>(Tú)</span>}
+                                    </p>
+                                    <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{member.email}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Actions: leave / delete */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+                          {selectedRoom.creator_id === profile?.id ? (
+                            <button
+                              id="delete-room-btn"
+                              onClick={() => handleDeleteRoom(selectedRoom.id, selectedRoom.name)}
+                              disabled={roomActionLoading}
+                              className="btn"
+                              style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.35)', color: '#f87171', width: '100%' }}
+                            >
+                              🗑️ Eliminar sala
+                            </button>
+                          ) : (
+                            <button
+                              id="leave-room-btn"
+                              onClick={() => handleLeaveRoom(selectedRoom.id)}
+                              disabled={roomActionLoading}
+                              className="btn btn-secondary"
+                              style={{ width: '100%' }}
+                            >
+                              🚪 Salir de la sala
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

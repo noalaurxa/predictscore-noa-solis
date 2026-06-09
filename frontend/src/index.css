@@ -59,6 +59,11 @@ a:hover {
   100% { box-shadow: 0 0 5px rgba(16, 185, 129, 0.2); }
 }
 
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 /* Container limits */
 .app-container {
   display: flex;
