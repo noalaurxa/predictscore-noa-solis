@@ -41,6 +41,14 @@ CREATE TABLE IF NOT EXISTS room_members (
     PRIMARY KEY (room_id, user_id)
 );
 
+-- 4b. Tabla de Partidos de Sala (Room Matches) - partidos que cuentan puntos para la sala
+CREATE TABLE IF NOT EXISTS room_matches (
+    room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+    match_id UUID NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+    added_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (room_id, match_id)
+);
+
 -- 5. Tabla de Predicciones
 CREATE TABLE IF NOT EXISTS predictions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

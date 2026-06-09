@@ -21,6 +21,12 @@ const Dashboard = () => {
   const [roomRanking, setRoomRanking] = useState([]);
   const [roomDetailLoading, setRoomDetailLoading] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  // Room match configuration
+  const [roomMatches, setRoomMatches] = useState([]);       // matches assigned to room
+  const [allMatches, setAllMatches] = useState([]);         // all available matches
+  const [showAddMatchModal, setShowAddMatchModal] = useState(false);
+  const [matchSlots, setMatchSlots] = useState([null]);     // array of selected matchIds (null = empty slot)
+  const [matchConfigLoading, setMatchConfigLoading] = useState(false);
 
   // Matches & Predictions State
   const [matches, setMatches] = useState([]);
@@ -187,14 +193,25 @@ const Dashboard = () => {
     setSelectedRoom(room);
     setRoomDetail(null);
     setRoomRanking([]);
+    setRoomMatches([]);
+    setAllMatches([]);
+    setMatchSlots([null]);
     setRoomDetailLoading(true);
     try {
-      const [detailRes, rankingRes] = await Promise.all([
+      const [detailRes, rankingRes, matchesRes] = await Promise.all([
         predictionApi.get(`/rooms/${room.id}`),
         predictionApi.get(`/rooms/${room.id}/ranking`),
+        predictionApi.get(`/rooms/${room.id}/matches`),
       ]);
       setRoomDetail(detailRes.data);
       setRoomRanking(rankingRes.data.ranking || []);
+      const assigned = matchesRes.data.roomMatches || [];
+      const all = matchesRes.data.allMatches || [];
+      setRoomMatches(assigned);
+      setAllMatches(all);
+      // Pre-fill slots: at least 1 slot, filled with assigned IDs
+      const slots = assigned.length > 0 ? assigned.map(m => m.id) : [null];
+      setMatchSlots(slots);
     } catch (err) {
       console.error(err);
       setError('Error al cargar el detalle de la sala.');
@@ -207,7 +224,58 @@ const Dashboard = () => {
     setSelectedRoom(null);
     setRoomDetail(null);
     setRoomRanking([]);
+    setRoomMatches([]);
+    setAllMatches([]);
+    setMatchSlots([null]);
     setCopiedCode(false);
+    setShowAddMatchModal(false);
+  };
+
+  // Add a new empty slot in the add-match modal
+  const handleAddSlot = () => setMatchSlots(prev => [...prev, null]);
+
+  // Remove a slot
+  const handleRemoveSlot = (idx) => setMatchSlots(prev => prev.filter((_, i) => i !== idx));
+
+  // Change a slot's selected match
+  const handleSlotChange = (idx, matchId) => {
+    setMatchSlots(prev => prev.map((v, i) => i === idx ? matchId : v));
+  };
+
+  // Save all slots: add new ones, remove unchecked ones
+  const handleSaveMatchConfig = async () => {
+    if (!selectedRoom) return;
+    setMatchConfigLoading(true);
+    try {
+      const newIds = matchSlots.filter(Boolean);
+      const currentIds = roomMatches.map(m => m.id);
+      // Ids to add (not yet in room)
+      const toAdd = newIds.filter(id => !currentIds.includes(id));
+      // Ids to remove (were in room but not in new selection)
+      const toRemove = currentIds.filter(id => !newIds.includes(id));
+
+      await Promise.all([
+        ...toAdd.map(id => predictionApi.post(`/rooms/${selectedRoom.id}/matches`, { matchId: id })),
+        ...toRemove.map(id => predictionApi.delete(`/rooms/${selectedRoom.id}/matches/${id}`)),
+      ]);
+
+      // Refresh matches and ranking
+      const [matchesRes, rankingRes] = await Promise.all([
+        predictionApi.get(`/rooms/${selectedRoom.id}/matches`),
+        predictionApi.get(`/rooms/${selectedRoom.id}/ranking`),
+      ]);
+      const assigned = matchesRes.data.roomMatches || [];
+      setRoomMatches(assigned);
+      setAllMatches(matchesRes.data.allMatches || []);
+      setMatchSlots(assigned.length > 0 ? assigned.map(m => m.id) : [null]);
+      setRoomRanking(rankingRes.data.ranking || []);
+      setShowAddMatchModal(false);
+      setSuccess('Partidos de la sala actualizados.');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al configurar partidos.');
+    } finally {
+      setMatchConfigLoading(false);
+    }
   };
 
   // Copy room code to clipboard
@@ -667,6 +735,48 @@ const Dashboard = () => {
                           </div>
                         )}
 
+                        {/* ⚽ Match configuration (creator only) */}
+                        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+                            <h4 style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>⚽ Partidos de la Sala</h4>
+                            {selectedRoom.creator_id === profile?.id && (
+                              <button
+                                id="configure-matches-btn"
+                                onClick={() => setShowAddMatchModal(true)}
+                                className="btn btn-secondary"
+                                style={{ padding: '0.3rem 0.7rem', fontSize: '0.78rem', width: 'auto' }}
+                              >
+                                ✏️ Configurar
+                              </button>
+                            )}
+                          </div>
+                          {roomMatches.length === 0 ? (
+                            <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', padding: '0.75rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px dashed var(--border-color)', textAlign: 'center' }}>
+                              {selectedRoom.creator_id === profile?.id
+                                ? '⚙️ Sin partidos configurados. Haz click en "Configurar" para añadir.'
+                                : '⚙️ El creador aún no ha configurado partidos para esta sala.'}
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                              {roomMatches.map(match => (
+                                <div key={match.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.6rem', background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.12)', borderRadius: '8px', fontSize: '0.82rem' }}>
+                                  <div>
+                                    <span style={{ fontWeight: 'bold', color: 'var(--text-primary)' }}>{match.home_team} vs {match.away_team}</span>
+                                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginTop: '0.1rem' }}>
+                                      📅 {new Date(match.match_date).toLocaleDateString([], { dateStyle: 'short' })}
+                                    </div>
+                                  </div>
+                                  <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: '4px',
+                                    background: match.status === 'finished' ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)',
+                                    color: match.status === 'finished' ? '#f87171' : 'var(--accent-mint)',
+                                    border: `1px solid ${match.status === 'finished' ? 'rgba(239,68,68,0.25)' : 'rgba(16,185,129,0.25)'}`
+                                  }}>{match.status === 'finished' ? 'Finalizado' : 'Activo'}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
                         {/* Actions: leave / delete */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
                           {selectedRoom.creator_id === profile?.id ? (
@@ -878,6 +988,120 @@ const Dashboard = () => {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* ── ADD MATCH MODAL (creator only) ── */}
+            {showAddMatchModal && selectedRoom && (
+              <div
+                id="add-match-modal-overlay"
+                style={{
+                  position: 'fixed', inset: 0,
+                  background: 'rgba(0,0,0,0.72)',
+                  backdropFilter: 'blur(5px)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  zIndex: 1100,
+                  animation: 'fadeIn 0.2s ease-out'
+                }}
+                onClick={(e) => { if (e.target === e.currentTarget) setShowAddMatchModal(false); }}
+              >
+                <div style={{
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '18px',
+                  padding: '2rem',
+                  maxWidth: '500px',
+                  width: '92%',
+                  maxHeight: '80vh',
+                  overflowY: 'auto',
+                  boxShadow: '0 24px 64px rgba(0,0,0,0.55)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '1.25rem'
+                }}>
+                  {/* Modal header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.1rem' }}>⚽ Configurar Partidos</h3>
+                      <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Solo los partidos seleccionados contarán puntos para esta sala.</p>
+                    </div>
+                    <button onClick={() => setShowAddMatchModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1.2rem' }}>✕</button>
+                  </div>
+
+                  {/* Match slots */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {matchSlots.map((slotId, idx) => {
+                      const otherSelected = matchSlots.filter((_, i) => i !== idx).filter(Boolean);
+                      return (
+                        <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', minWidth: '20px', textAlign: 'center' }}>#{idx + 1}</span>
+                          <select
+                            id={`match-slot-${idx}`}
+                            value={slotId || ''}
+                            onChange={(e) => handleSlotChange(idx, e.target.value || null)}
+                            style={{
+                              flex: 1,
+                              background: 'var(--bg-primary)',
+                              color: 'var(--text-primary)',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: '8px',
+                              padding: '0.5rem 0.75rem',
+                              fontSize: '0.85rem',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <option value="">— Selecciona un partido —</option>
+                            {allMatches
+                              .filter(m => !otherSelected.includes(m.id))
+                              .map(m => (
+                                <option key={m.id} value={m.id}>
+                                  {m.home_team} vs {m.away_team} · {new Date(m.match_date).toLocaleDateString([], { dateStyle: 'short' })} {m.status === 'finished' ? '✓' : ''}
+                                </option>
+                              ))}
+                          </select>
+                          {matchSlots.length > 1 && (
+                            <button
+                              onClick={() => handleRemoveSlot(idx)}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f87171', fontSize: '1rem', padding: '0.3rem', flexShrink: 0 }}
+                              title="Quitar partido"
+                            >✕</button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Add slot button */}
+                  <button
+                    id="add-match-slot-btn"
+                    onClick={handleAddSlot}
+                    className="btn btn-secondary"
+                    style={{ width: '100%', fontSize: '0.85rem', borderStyle: 'dashed' }}
+                    disabled={matchSlots.length >= allMatches.length}
+                  >
+                    + Añadir otro partido
+                  </button>
+
+                  {/* Save / Cancel */}
+                  <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+                    <button
+                      className="btn btn-secondary"
+                      style={{ width: 'auto', padding: '0.5rem 1.25rem' }}
+                      onClick={() => setShowAddMatchModal(false)}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      id="save-match-config-btn"
+                      className="btn btn-primary"
+                      style={{ width: 'auto', padding: '0.5rem 1.5rem' }}
+                      onClick={handleSaveMatchConfig}
+                      disabled={matchConfigLoading || matchSlots.every(s => !s)}
+                    >
+                      {matchConfigLoading ? '...' : '✅ Guardar configuración'}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 

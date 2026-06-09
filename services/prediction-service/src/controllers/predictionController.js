@@ -308,7 +308,7 @@ const getRoomDetail = async (req, res) => {
   }
 };
 
-// 8. Ranking interno de una sala
+// 8. Ranking interno de una sala (solo cuenta partidos habilitados en room_matches)
 const getRoomRanking = async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -323,20 +323,42 @@ const getRoomRanking = async (req, res) => {
       return res.status(403).json({ error: 'No tienes acceso a esta sala.' });
     }
 
-    // Calcular puntos solo para miembros de la sala
-    const rankingResult = await db.query(
-      `SELECT u.id, u.name, u.email,
-              COALESCE(SUM(s.points), 0)::INTEGER as total_points,
-              COUNT(p.id)::INTEGER as predictions_count
-       FROM room_members rm
-       INNER JOIN users u ON rm.user_id = u.id
-       LEFT JOIN scores s ON u.id = s.user_id
-       LEFT JOIN predictions p ON u.id = p.user_id
-       WHERE rm.room_id = $1
-       GROUP BY u.id, u.name, u.email
-       ORDER BY total_points DESC, u.name ASC`,
+    // Verificar si hay partidos configurados para la sala
+    const roomMatchesResult = await db.query(
+      'SELECT match_id FROM room_matches WHERE room_id = $1',
       [roomId]
     );
+
+    let rankingResult;
+    if (roomMatchesResult.rows.length === 0) {
+      // Sin partidos configurados: todos en 0
+      rankingResult = await db.query(
+        `SELECT u.id, u.name, u.email,
+                0 as total_points,
+                0 as predictions_count
+         FROM room_members rm
+         INNER JOIN users u ON rm.user_id = u.id
+         WHERE rm.room_id = $1
+         ORDER BY u.name ASC`,
+        [roomId]
+      );
+    } else {
+      // Solo sumar puntos de los partidos habilitados para la sala
+      const matchIds = roomMatchesResult.rows.map(r => r.match_id);
+      rankingResult = await db.query(
+        `SELECT u.id, u.name, u.email,
+                COALESCE(SUM(s.points), 0)::INTEGER as total_points,
+                COUNT(DISTINCT p.id)::INTEGER as predictions_count
+         FROM room_members rm
+         INNER JOIN users u ON rm.user_id = u.id
+         LEFT JOIN scores s ON u.id = s.user_id AND s.match_id = ANY($2::uuid[])
+         LEFT JOIN predictions p ON u.id = p.user_id AND p.match_id = ANY($2::uuid[])
+         WHERE rm.room_id = $1
+         GROUP BY u.id, u.name, u.email
+         ORDER BY total_points DESC, u.name ASC`,
+        [roomId, matchIds]
+      );
+    }
 
     return res.status(200).json({
       ranking: rankingResult.rows,
@@ -346,6 +368,115 @@ const getRoomRanking = async (req, res) => {
     return res.status(500).json({ error: 'Error interno del servidor.' });
   }
 };
+
+// 12. Obtener partidos configurados para la sala
+const getRoomMatches = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const userId = req.user.id;
+
+    // Verificar membresía
+    const memberCheck = await db.query(
+      'SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2',
+      [roomId, userId]
+    );
+    if (memberCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'No tienes acceso a esta sala.' });
+    }
+
+    // Partidos actualmente asignados a la sala
+    const assignedResult = await db.query(
+      `SELECT m.id, m.home_team, m.away_team, m.match_date, m.status,
+              m.home_score, m.away_score, rm.added_at
+       FROM room_matches rm
+       INNER JOIN matches m ON rm.match_id = m.id
+       WHERE rm.room_id = $1
+       ORDER BY m.match_date ASC`,
+      [roomId]
+    );
+
+    // Todos los partidos disponibles (para que el creador pueda añadir)
+    const allMatchesResult = await db.query(
+      `SELECT id, home_team, away_team, match_date, status, home_score, away_score
+       FROM matches
+       ORDER BY match_date ASC`
+    );
+
+    return res.status(200).json({
+      roomMatches: assignedResult.rows,
+      allMatches: allMatchesResult.rows,
+    });
+  } catch (error) {
+    console.error('Error al obtener partidos de sala:', error);
+    return res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+};
+
+// 13. Añadir un partido a la sala (solo el creador)
+const addRoomMatch = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { matchId } = req.body;
+    const userId = req.user.id;
+
+    if (!matchId) {
+      return res.status(400).json({ error: 'matchId es requerido.' });
+    }
+
+    const roomResult = await db.query('SELECT * FROM rooms WHERE id = $1', [roomId]);
+    if (roomResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Sala no encontrada.' });
+    }
+    if (roomResult.rows[0].creator_id !== userId) {
+      return res.status(403).json({ error: 'Solo el creador puede configurar los partidos.' });
+    }
+
+    // Verificar que el partido existe
+    const matchResult = await db.query('SELECT id FROM matches WHERE id = $1', [matchId]);
+    if (matchResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Partido no encontrado.' });
+    }
+
+    // Insertar (ignorar si ya existe)
+    await db.query(
+      'INSERT INTO room_matches (room_id, match_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [roomId, matchId]
+    );
+
+    return res.status(201).json({ message: 'Partido añadido a la sala.' });
+  } catch (error) {
+    console.error('Error al añadir partido a sala:', error);
+    return res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+};
+
+// 14. Quitar un partido de la sala (solo el creador)
+const removeRoomMatch = async (req, res) => {
+  try {
+    const { roomId, matchId } = req.params;
+    const userId = req.user.id;
+
+    const roomResult = await db.query('SELECT * FROM rooms WHERE id = $1', [roomId]);
+    if (roomResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Sala no encontrada.' });
+    }
+    if (roomResult.rows[0].creator_id !== userId) {
+      return res.status(403).json({ error: 'Solo el creador puede configurar los partidos.' });
+    }
+
+    await db.query(
+      'DELETE FROM room_matches WHERE room_id = $1 AND match_id = $2',
+      [roomId, matchId]
+    );
+
+    return res.status(200).json({ message: 'Partido eliminado de la sala.' });
+  } catch (error) {
+    console.error('Error al quitar partido de sala:', error);
+    return res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+};
+
+
 
 // 9. Ver predicciones de los miembros de la sala para un partido (solo si finalizó)
 const getRoomMatchPredictions = async (req, res) => {
@@ -467,6 +598,9 @@ module.exports = {
   getRoomMatchPredictions,
   leaveRoom,
   deleteRoom,
+  getRoomMatches,
+  addRoomMatch,
+  removeRoomMatch,
   createOrUpdatePrediction,
   getPredictions,
   getRanking

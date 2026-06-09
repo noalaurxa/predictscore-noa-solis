@@ -15,6 +15,11 @@ router.get('/rooms/:roomId/predictions/:matchId', authMiddleware, predictionCont
 router.post('/rooms/:roomId/leave', authMiddleware, predictionController.leaveRoom);
 router.delete('/rooms/:roomId', authMiddleware, predictionController.deleteRoom);
 
+// Configuración de partidos de la sala (solo creador puede añadir/eliminar)
+router.get('/rooms/:roomId/matches', authMiddleware, predictionController.getRoomMatches);
+router.post('/rooms/:roomId/matches', authMiddleware, predictionController.addRoomMatch);
+router.delete('/rooms/:roomId/matches/:matchId', authMiddleware, predictionController.removeRoomMatch);
+
 router.post('/predictions', authMiddleware, predictionController.createOrUpdatePrediction);
 router.get('/predictions', authMiddleware, predictionController.getPredictions);
 router.get('/ranking', authMiddleware, predictionController.getRanking);
